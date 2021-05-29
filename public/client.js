@@ -208,7 +208,13 @@ g_socket.on(
 
 function createPeerConnection( stream )
 {
-    let config = { "iceServers": [] };
+    let config = { "iceServers": [
+            { "urls": "stun:stun.l.google.com:19302" },
+            { "urls": "stun:stun1.l.google.com:19302" },
+            { "urls": "stun:stun2.l.google.com:19302" },
+        ]
+    };
+
     let rtcPeerConnection = new RTCPeerConnection( config );
 
     setupRTCPeerConnectionEventHandler( rtcPeerConnection );
