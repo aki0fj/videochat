@@ -8,13 +8,6 @@ const g_elementVideoRemote = document.getElementById( "video_remote" );
 const g_elementAudioRemote = document.getElementById( "audio_remote" );
 const g_socket = io.connect();
 
-/*
-const g_elementTextareaOfferSideOfferSDP = document.getElementById( "textarea_offerside_offsersdp" );
-const g_elementTextareaAnswerSideOfferSDP = document.getElementById( "textarea_answerside_offsersdp" );
-const g_elementTextareaOfferSideAnswerSDP = document.getElementById( "textarea_offerside_answersdp" );
-const g_elementTextareaAnswerSideAnswerSDP = document.getElementById( "textarea_answerside_answersdp" );
-*/
-
 const g_elementCanvasLocal = document.getElementById( "canvas_local" );
 const g_elementCanvasRemote = document.getElementById( "canvas_remote" );
 const g_contextLocal = g_elementCanvasLocal.getContext('2d');
@@ -62,87 +55,17 @@ function onclickButton_SendOfferSDP()
     createOfferSDP( rtcPeerConnection );
 }
 
-/*
-// Create OfferSDP
-function onclickButton_CreateOfferSDP()
+// Leave Chat
+function onclickButton_LeaveChat()
 {
-    console.log( "UI Event : 'Create Offer SDP.' button clicked." );
-
-    if( g_rtcPeerConnection )
-    {   
-        alert( "Connection object already exists." );
-        return;
-    }
-
-    // create RTCPeerConnection
-    console.log( "Call : createPeerConnection()" );
-    let rtcPeerConnection = createPeerConnection( g_elementVideoLocal.srcObject );
-    g_rtcPeerConnection = rtcPeerConnection;
-
-    createOfferSDP( rtcPeerConnection );
-}
-
-// Set OfferSDP and Create AnswerSDP
-function onclickButton_SetOfferSDPandCreateAnswerSDP()
-{
-    console.log( "UI Event : 'Set OfferSDP and Create AnswerSDP.' button clicked." );
+    console.log( "UI Event : 'Leave Chat.' button clicked." );
 
     if( g_rtcPeerConnection )
     {
-        alert( "Connection object already exists." );
-        return;
+        console.log( "Call : endPeerConnection()" );
+        endPeerConnection( g_rtcPeerConnection );
     }
-
-    // get OfferSDP from textarea
-    let strOfferSDP = g_elementTextareaAnswerSideOfferSDP.value;
-    if( !strOfferSDP )
-    {
-        alert( "OfferSDP is empty. Please enter the OfferSDP." );
-        return;
-    }
-
-    // create RTCPeerConnection
-    console.log( "Call : createPeerConnection()" );
-    let rtcPeerConnection = createPeerConnection( g_elementVideoLocal.srcObject );
-    g_rtcPeerConnection = rtcPeerConnection;
-
-    // set OfferSDP and create AnswerSDP
-    let sessionDescription = new RTCSessionDescription( {
-        type: "offer",
-        sdp: strOfferSDP,
-    } );
-    console.log( "Call : setOfferSDP_and_createAnswerSDP()" );
-    setOfferSDP_and_createAnswerSDP( rtcPeerConnection, sessionDescription );
 }
-
-// Set AnswerSDP. Then the chat starts
-function onclickButton_SetAnswerSDPthenChatStarts()
-{
-    console.log( "UI Event : 'Set AnswerSDP. Then the chat starts.' button clicked." );
-
-    if( !g_rtcPeerConnection )
-    {
-        alert( "Connection object does not exist." );
-        return;
-    }
-
-    // get AnswerSDP from textarea
-    let strAnswerSDP = g_elementTextareaOfferSideAnswerSDP.value;
-    if( !strAnswerSDP )
-    {   // AnswerSDPが空
-        alert( "AnswerSDP is empty. Please enter the AnswerSDP." );
-        return;
-    }
-
-    // set AnswerSDP
-    let sessionDescription = new RTCSessionDescription( {
-        type: "answer",
-        sdp: strAnswerSDP,
-    } );
-    console.log( "Call : setAnswerSDP()" );
-    setAnswerSDP( g_rtcPeerConnection, sessionDescription );
-}
-*/
 
 // Camera and Microphone On/Off
 function onclickCheckbox_CameraMicrophone()
@@ -352,21 +275,11 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
             // Trickle ICE : do nothing
             if( "offer" === rtcPeerConnection.localDescription.type )
             {
-                // paste to textarea of OfferSDP in Offer side
-                //console.log( "- Set OfferSDP in textarea" );
-                //g_elementTextareaOfferSideOfferSDP.value = rtcPeerConnection.localDescription.sdp;
-                //g_elementTextareaOfferSideOfferSDP.focus();
-                //g_elementTextareaOfferSideOfferSDP.select();
                 console.log( "- Send OfferSDP to server" );
                 g_socket.emit( "signaling", { type: "offer", data: rtcPeerConnection.localDescription } );
             }
             else if( "answer" === rtcPeerConnection.localDescription.type )
             {
-                // paste to textarea of AnswerSDP in Answer side
-                //console.log( "- Set AnswerSDP in textarea" );
-                //g_elementTextareaAnswerSideAnswerSDP.value = rtcPeerConnection.localDescription.sdp;
-                //g_elementTextareaAnswerSideAnswerSDP.focus();
-                //g_elementTextareaAnswerSideAnswerSDP.select();
                 console.log( "- Send AnswerSDP to server" );
                 g_socket.emit( "signaling", { type: "answer", data: rtcPeerConnection.localDescription } );
 
@@ -403,6 +316,11 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
         console.log( "Event : Connection state change" );
         console.log( "- Connection state : ", rtcPeerConnection.connectionState );
         // see : https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/connectionState
+        if( "failed" === rtcPeerConnection.connectionState )
+        {
+            console.log( "Call : endPeerConnection()" );
+            endPeerConnection( rtcPeerConnection );
+        }
     };
 
     // Track event hundler
@@ -431,6 +349,20 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
             console.error( "Unexpected : Unknown track kind : ", track.kind );
         }
     };
+}
+
+function endPeerConnection( rtcPeerConnection )
+{
+    // Stop remote video
+    console.log( "Call : setStreamToElement( Video_Remote, null )" );
+    setStreamToElement( g_elementVideoRemote, null );
+    // Stop remote audio
+    console.log( "Call : setStreamToElement( Audio_Remote, null )" );
+    setStreamToElement( g_elementAudioRemote, null );
+
+    g_rtcPeerConnection = null;
+
+    rtcPeerConnection.close();
 }
 
 function createOfferSDP( rtcPeerConnection )
