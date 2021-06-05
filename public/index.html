@@ -24,6 +24,11 @@
     </div>
     <audio id="audio_remote" autoplay></audio>
     <br />
+    <form action="" onsubmit="onsubmitButton_SendMessage(); return false;">
+        <input type="text" id="text_message_for_send" size="40" /><input type="submit" value="Send message" />
+    </form>
+    <textarea id="textarea_message_received" rows="10" cols="60" readonly="readonly"></textarea>
+    <br />
     <button onclick="onclickButton_SendOfferSDP()">Send OfferSDP.</button>
     <br />
     <button onclick="onclickButton_LeaveChat()">Leave Chat.</button>

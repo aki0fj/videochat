@@ -6,6 +6,8 @@ const g_elementCheckboxMicrophone = document.getElementById( "checkbox_microphon
 const g_elementVideoLocal = document.getElementById( "video_local" );
 const g_elementVideoRemote = document.getElementById( "video_remote" );
 const g_elementAudioRemote = document.getElementById( "audio_remote" );
+const g_elementTextMessageForSend = document.getElementById( "text_message_for_send" );
+const g_elementTextareaMessageReceived = document.getElementById( "textarea_message_received" );
 const g_socket = io.connect();
 
 const g_elementCanvasLocal = document.getElementById( "canvas_local" );
@@ -38,20 +40,26 @@ function onclickButton_SendOfferSDP()
 {
     console.log( "UI Event : 'Send OfferSDP.' button clicked." );
 
-    // onclickButton_CreateOfferSDP()と同様の処理
-
     if( g_rtcPeerConnection )
     {
         alert( "Connection object already exists." );
         return;
     }
 
-    // RTCPeerConnectionオブジェクトの作成
+    // create RTCPeerConnection
     console.log( "Call : createPeerConnection()" );
     let rtcPeerConnection = createPeerConnection( g_elementVideoLocal.srcObject );
-    g_rtcPeerConnection = rtcPeerConnection;    // グローバル変数に設定
+    g_rtcPeerConnection = rtcPeerConnection;
 
-    // OfferSDPの作成
+    // create DataChannel
+    let datachannel = rtcPeerConnection.createDataChannel( "my datachannel" );
+    // add DataChannel to member of RTCPeerConnection
+    rtcPeerConnection.datachannel = datachannel;
+    // setup event handler for DataChannel
+    console.log( "Call : setupDataChannelEventHandler()" );
+    setupDataChannelEventHandler( rtcPeerConnection );
+
+    // create OfferSDP
     createOfferSDP( rtcPeerConnection );
 }
 
@@ -152,6 +160,36 @@ function onclickCheckbox_CameraMicrophone()
         } );
 }
 
+// 「Send Message」ボタンを押すと呼ばれる関数
+function onsubmitButton_SendMessage()
+{
+    console.log( "UI Event : 'Send Message' button clicked." );
+
+    if( !g_rtcPeerConnection )
+    {   // コネクションオブジェクトがない
+        alert( "Connection object does not exist." );
+        return;
+    }
+    if( !isDataChannelOpen( g_rtcPeerConnection ) )
+    {   // DataChannelオブジェクトが開いていない
+        alert( "Datachannel is not open." );
+        return;
+    }
+
+    if( !g_elementTextMessageForSend.value )
+    {
+        alert( "Message for send is empty. Please enter the message for send." );
+        return;
+    }
+
+    console.log( "- Send Message through DataChannel" );
+    g_rtcPeerConnection.datachannel.send( JSON.stringify( { type: "message", data: g_elementTextMessageForSend.value } ) );
+
+    // add send-message to text-area
+    g_elementTextareaMessageReceived.value = g_elementTextMessageForSend.value + "\n" + g_elementTextareaMessageReceived.value; // add to top
+    g_elementTextMessageForSend.value = "";
+}
+
 // Socket.IO functions
 g_socket.on(
     "connect",
@@ -214,6 +252,49 @@ g_socket.on(
 );
 
 // Data Channel functions
+
+function setupDataChannelEventHandler( rtcPeerConnection )
+{
+    if( !( "datachannel" in rtcPeerConnection ) )
+    {
+        console.error( "Unexpected : DataChannel does not exist." );
+        return;
+    }
+
+    // event handler for message
+    rtcPeerConnection.datachannel.onmessage = ( event ) =>
+    {
+        console.log( "DataChannel Event : message" );
+        let objData = JSON.parse( event.data );
+        console.log( "- type : ", objData.type );
+        console.log( "- data : ", objData.data );
+
+        if( "message" === objData.type )
+        {
+            // add receive message to textarea
+            let strMessage = objData.data;
+            g_elementTextareaMessageReceived.value = strMessage + "\n" + g_elementTextareaMessageReceived.value; // add to top
+        }
+    }
+}
+
+function isDataChannelOpen( rtcPeerConnection )
+{
+    if( !( "datachannel" in rtcPeerConnection ) )
+    {
+        return false;
+    }
+    if( !rtcPeerConnection.datachannel )
+    {
+        return false;
+    }
+    if( "open" !== rtcPeerConnection.datachannel.readyState )
+    {
+        return false;
+    }
+    // DataCchannel is open
+    return true;
+}
 
 // RTCPeerConnection functions
 
@@ -368,6 +449,20 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
             console.error( "Unexpected : Unknown track kind : ", track.kind );
         }
     };
+
+    // event handler for Data channel
+    //   this event on fire when RTCDataChannel is added to connection by remote peer
+    //   see : https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/ondatachannel
+    rtcPeerConnection.ondatachannel = ( event ) =>
+    {
+        console.log( "Event : Data channel" );
+
+        // add DataChannel to member of RTCPeerConnection
+        rtcPeerConnection.datachannel = event.channel;
+        // setup event handler for DataChannel
+        console.log( "Call : setupDataChannelEventHandler()" );
+        setupDataChannelEventHandler( rtcPeerConnection );
+    };
 }
 
 function endPeerConnection( rtcPeerConnection )
@@ -378,6 +473,13 @@ function endPeerConnection( rtcPeerConnection )
     // Stop remote audio
     console.log( "Call : setStreamToElement( Audio_Remote, null )" );
     setStreamToElement( g_elementAudioRemote, null );
+
+    // close DataChannel
+    if( "datachannel" in rtcPeerConnection )
+    {
+        rtcPeerConnection.datachannel.close();
+        rtcPeerConnection.datachannel = null;
+    }
 
     g_rtcPeerConnection = null;
 
