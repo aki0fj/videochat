@@ -195,6 +195,17 @@ g_socket.on(
             console.log( "Call : setAnswerSDP()" );
             setAnswerSDP( g_rtcPeerConnection, objData.data );
         }
+        else if( "candidate" === objData.type )
+        {
+            if( !g_rtcPeerConnection )
+            {
+                alert( "Connection object does not exist." );
+                return;
+            }
+
+            console.log( "Call : addCandidate()" );
+            addCandidate( g_rtcPeerConnection, objData.data );
+        }
         else
         {
             console.error( "Unexpected : Socket Event : signaling" );
@@ -254,6 +265,8 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
 
             // Vanilla ICE : do nothing
             // Trickle ICE : Send ICE candidate to the other party
+            console.log( "- Send ICE candidate to server" );
+            g_socket.emit( "signaling", { type: "candidate", data: event.candidate } );
         }
         else
         {
@@ -281,13 +294,13 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
             // Trickle ICE : do nothing
             if( "offer" === rtcPeerConnection.localDescription.type )
             {
-                console.log( "- Send OfferSDP to server" );
-                g_socket.emit( "signaling", { type: "offer", data: rtcPeerConnection.localDescription } );
+                // console.log( "- Send OfferSDP to server" );
+                // g_socket.emit( "signaling", { type: "offer", data: rtcPeerConnection.localDescription } );
             }
             else if( "answer" === rtcPeerConnection.localDescription.type )
             {
-                console.log( "- Send AnswerSDP to server" );
-                g_socket.emit( "signaling", { type: "answer", data: rtcPeerConnection.localDescription } );
+                // console.log( "- Send AnswerSDP to server" );
+                // g_socket.emit( "signaling", { type: "answer", data: rtcPeerConnection.localDescription } );
 
             }
             else
@@ -384,6 +397,8 @@ function createOfferSDP( rtcPeerConnection )
         {
             // Vanilla ICE : not sent SDP to the other party yet
             // Trickle ICE : Send initial SDP to the other party
+            console.log( "- Send OfferSDP to server" );
+            g_socket.emit( "signaling", { type: "offer", data: rtcPeerConnection.localDescription } );
         } )
         .catch( ( error ) =>
         {
@@ -411,6 +426,8 @@ function setOfferSDP_and_createAnswerSDP( rtcPeerConnection, sessionDescription 
         {
             // Vanilla ICE : not sent SDP to the other party yet
             // Trickle ICE : Send initial SDP to the other party
+            console.log( "- Send AnswerSDP to server" );
+            g_socket.emit( "signaling", { type: "answer", data: rtcPeerConnection.localDescription } );
         } )
         .catch( ( error ) =>
         {
@@ -423,6 +440,17 @@ function setAnswerSDP( rtcPeerConnection, sessionDescription )
 {
     console.log( "Call : rtcPeerConnection.setRemoteDescription()" );
     rtcPeerConnection.setRemoteDescription( sessionDescription )
+        .catch( ( error ) =>
+        {
+            console.error( "Error : ", error );
+        } );
+}
+
+// add candidate
+function addCandidate( rtcPeerConnection, candidate )
+{
+    console.log( "Call : rtcPeerConnection.addIceCandidate()" );
+    rtcPeerConnection.addIceCandidate( candidate )
         .catch( ( error ) =>
         {
             console.error( "Error : ", error );
