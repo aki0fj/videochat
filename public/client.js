@@ -85,6 +85,8 @@ function onclickCheckbox_CameraMicrophone()
     let trackMicrophone_old = null;
     let bCamera_old = false;
     let bMicrophone_old = false;
+    let idCameraTrack_old = "";
+    let idMicrophoneTrack_old = "";
     let stream = g_elementVideoLocal.srcObject;
     if( stream )
     {
@@ -92,11 +94,13 @@ function onclickCheckbox_CameraMicrophone()
         if( trackCamera_old )
         {
             bCamera_old = true;
+            idCameraTrack_old = trackCamera_old.id;
         }
         trackMicrophone_old = stream.getAudioTracks()[0];
         if( trackMicrophone_old )
         {
             bMicrophone_old = true;
+            idMicrophoneTrack_old = trackCamera_old.id;
         }
     }
 
@@ -119,6 +123,22 @@ function onclickCheckbox_CameraMicrophone()
     if( bCamera_old === bCamera_new && bMicrophone_old === bMicrophone_new )
     {   // status not change
         return;
+    }
+
+    if( g_rtcPeerConnection )
+    {
+        let senders = g_rtcPeerConnection.getSenders();
+        senders.forEach( ( sender ) =>
+        {
+            if( sender.track )
+            {
+                if( idCameraTrack_old === sender.track.id
+                    || idMicrophoneTrack_old === sender.track.id)
+                {
+                    g_rtcPeerConnection.removeTrack( sender );
+                }
+            }
+        } );
     }
 
     // stop media stream track (Canceling the media stream of HTML element does not stop the camera)
@@ -146,6 +166,13 @@ function onclickCheckbox_CameraMicrophone()
     navigator.mediaDevices.getUserMedia( { video: bCamera_new, audio: bMicrophone_new } )
         .then( ( stream ) =>
         {
+            if( g_rtcPeerConnection )
+            {
+                stream.getTracks().forEach( ( track ) =>
+                {
+                    g_rtcPeerConnection.addTrack( track, stream );
+                } );
+            }
             // set the media stream to HTML element
             console.log( "Call : setStreamToElement( Video_Local, stream )" );
             setStreamToElement( g_elementVideoLocal, g_elementCanvasLocal, stream );
@@ -275,6 +302,21 @@ function setupDataChannelEventHandler( rtcPeerConnection )
             let strMessage = objData.data;
             g_elementTextareaMessageReceived.value = strMessage + "\n" + g_elementTextareaMessageReceived.value; // add to top
         }
+        else if( "offer" === objData.type )
+        {
+            console.log( "Call : setOfferSDP_and_createAnswerSDP()" );
+            setOfferSDP_and_createAnswerSDP( rtcPeerConnection, objData.data );
+        }
+        else if( "answer" === objData.type )
+        {
+            console.log( "Call : setAnswerSDP()" );
+            setAnswerSDP( rtcPeerConnection, objData.data );
+        }
+        else if( "candidate" === objData.type )
+        {
+            console.log( "Call : addCandidate()" );
+            addCandidate( rtcPeerConnection, objData.data );
+        }
     }
 }
 
@@ -333,6 +375,11 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
     rtcPeerConnection.onnegotiationneeded = () =>
     {
         console.log( "Event : Negotiation needed" );
+        if( isDataChannelOpen( rtcPeerConnection ) )
+        {
+            console.log( "Call : createOfferSDP()" );
+            createOfferSDP( rtcPeerConnection );
+        }
     };
 
     // ICE candidate
@@ -346,8 +393,16 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
 
             // Vanilla ICE : do nothing
             // Trickle ICE : Send ICE candidate to the other party
-            console.log( "- Send ICE candidate to server" );
-            g_socket.emit( "signaling", { type: "candidate", data: event.candidate } );
+            if( !isDataChannelOpen( rtcPeerConnection ) )
+            {  
+                console.log( "- Send ICE candidate to server" );
+                g_socket.emit( "signaling", { type: "candidate", data: event.candidate } );
+            }
+            else
+            {
+                console.log( "- Send ICE candidate through DataChannel" );
+                rtcPeerConnection.datachannel.send( JSON.stringify( { type: "candidate", data: event.candidate } ) );
+            }
         }
         else
         {
@@ -448,6 +503,29 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
         {
             console.error( "Unexpected : Unknown track kind : ", track.kind );
         }
+
+        stream.onremovetrack = ( evt ) =>
+        {
+            console.log( "Stream Event : remove track" );
+            console.log( "- stream", stream );
+            console.log( "- track", evt.track );
+
+            let trackRemove = evt.track;
+            if( "video" === trackRemove.kind )
+            {
+                console.log( "Call : setStreamToElement( Video_Remote, null )" );
+                setStreamToElement( g_elementVideoRemote, null );
+            }
+            else if( "audio" === trackRemove.kind )
+            {
+                console.log( "Call : setStreamToElement( Audio_Remote, null )" );
+                setStreamToElement( g_elementAudioRemote, null );
+            }
+            else
+            {
+                console.error( "Unexpected : Unknown track kind : ", trackRemove.kind );
+            }
+        };
     };
 
     // event handler for Data channel
@@ -469,10 +547,10 @@ function endPeerConnection( rtcPeerConnection )
 {
     // Stop remote video
     console.log( "Call : setStreamToElement( Video_Remote, null )" );
-    setStreamToElement( g_elementVideoRemote, null );
+    setStreamToElement( g_elementVideoRemote, g_elementCanvasLocal, null );
     // Stop remote audio
     console.log( "Call : setStreamToElement( Audio_Remote, null )" );
-    setStreamToElement( g_elementAudioRemote, null );
+    setStreamToElement( g_elementAudioRemote, null, null );
 
     // close DataChannel
     if( "datachannel" in rtcPeerConnection )
@@ -499,8 +577,16 @@ function createOfferSDP( rtcPeerConnection )
         {
             // Vanilla ICE : not sent SDP to the other party yet
             // Trickle ICE : Send initial SDP to the other party
-            console.log( "- Send OfferSDP to server" );
-            g_socket.emit( "signaling", { type: "offer", data: rtcPeerConnection.localDescription } );
+            if( !isDataChannelOpen( rtcPeerConnection ) )
+            { 
+                console.log( "- Send OfferSDP to server" );
+                g_socket.emit( "signaling", { type: "offer", data: rtcPeerConnection.localDescription } );
+            }
+            else
+            {
+                console.log( "- Send OfferSDP through DataChannel" );
+                rtcPeerConnection.datachannel.send( JSON.stringify( { type: "offer", data: rtcPeerConnection.localDescription } ) );
+            }
         } )
         .catch( ( error ) =>
         {
@@ -528,8 +614,16 @@ function setOfferSDP_and_createAnswerSDP( rtcPeerConnection, sessionDescription 
         {
             // Vanilla ICE : not sent SDP to the other party yet
             // Trickle ICE : Send initial SDP to the other party
-            console.log( "- Send AnswerSDP to server" );
-            g_socket.emit( "signaling", { type: "answer", data: rtcPeerConnection.localDescription } );
+            if( !isDataChannelOpen( rtcPeerConnection ) )
+            {  
+                console.log( "- Send AnswerSDP to server" );
+                g_socket.emit( "signaling", { type: "answer", data: rtcPeerConnection.localDescription } );
+            }
+            else
+            {
+                console.log( "- Send AnswerSDP through DataChannel" );
+                rtcPeerConnection.datachannel.send( JSON.stringify( { type: "answer", data: rtcPeerConnection.localDescription } ) );
+            }
         } )
         .catch( ( error ) =>
         {
