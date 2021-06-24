@@ -35,6 +35,20 @@ window.onload = function()
     console.log( "UI Event : onload end." );
 }
 
+window.addEventListener(
+    "beforeunload",
+    ( event ) =>
+    {
+        event.preventDefault(); 
+
+        onclickButton_LeaveChat();
+        g_socket.disconnect();
+
+        e.returnValue = ""; // for Chrome
+        return ""; // for non Chrome
+    }
+);
+
 // Send OfferSDP
 function onclickButton_SendOfferSDP()
 {
@@ -70,6 +84,11 @@ function onclickButton_LeaveChat()
 
     if( g_rtcPeerConnection )
     {
+        if( isDataChannelOpen( g_rtcPeerConnection ) )
+        {
+            console.log( "- Send 'leave' through DataChannel" );
+            g_rtcPeerConnection.datachannel.send( JSON.stringify( { type: "leave", data: "" } ) );
+        }
         console.log( "Call : endPeerConnection()" );
         endPeerConnection( g_rtcPeerConnection );
     }
@@ -316,6 +335,11 @@ function setupDataChannelEventHandler( rtcPeerConnection )
         {
             console.log( "Call : addCandidate()" );
             addCandidate( rtcPeerConnection, objData.data );
+        }
+        else if( "leave" === objData.type )
+        {
+            console.log( "Call : endPeerConnection()" );
+            endPeerConnection( rtcPeerConnection );
         }
     }
 }
