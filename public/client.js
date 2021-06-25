@@ -1,8 +1,16 @@
 "use strict"; 
 
 // Global Variables
+const g_elementDivJoinScreen = document.getElementById( "div_join_screen" );
+const g_elementDivChatScreen = document.getElementById( "div_chat_screen" );
+const g_elementInputUserName = document.getElementById( "input_username" );
+
 const g_elementCheckboxCamera = document.getElementById( "checkbox_camera" );
 const g_elementCheckboxMicrophone = document.getElementById( "checkbox_microphone" );
+
+const g_elementTextUserName = document.getElementById( "text_username" );
+const g_elementTextRemoteUserName = document.getElementById( "text_remote_username" );
+
 const g_elementVideoLocal = document.getElementById( "video_local" );
 const g_elementVideoRemote = document.getElementById( "video_remote" );
 const g_elementAudioRemote = document.getElementById( "audio_remote" );
@@ -49,6 +57,27 @@ window.addEventListener(
     }
 );
 
+function onsubmitButton_Join()
+{
+    console.log( "UI Event : 'Join' button clicked." );
+
+    let strInputUserName = g_elementInputUserName.value;
+    console.log( "- User name :", strInputUserName );
+    if( !strInputUserName )
+    {
+        return;
+    }
+    g_elementTextUserName.value = strInputUserName;
+
+    console.log( "- Send 'Join' to server" );
+    g_socket.emit( "join", {} );
+
+    // Change display
+    g_elementDivJoinScreen.style.display = "none"; 
+    g_elementDivChatScreen.style.display = "block";
+}
+
+/* -- comment out
 // Send OfferSDP
 function onclickButton_SendOfferSDP()
 {
@@ -76,6 +105,7 @@ function onclickButton_SendOfferSDP()
     // create OfferSDP
     createOfferSDP( rtcPeerConnection );
 }
+*/
 
 // Leave Chat
 function onclickButton_LeaveChat()
@@ -92,6 +122,12 @@ function onclickButton_LeaveChat()
         console.log( "Call : endPeerConnection()" );
         endPeerConnection( g_rtcPeerConnection );
     }
+
+    g_elementTextUserName.value = "";
+
+    // Change display
+    g_elementDivChatScreen.style.display = "none";
+    g_elementDivJoinScreen.style.display = "flex";
 }
 
 // Camera and Microphone On/Off
@@ -253,7 +289,40 @@ g_socket.on(
         console.log( "- type : ", objData.type );
         console.log( "- data : ", objData.data );
 
-        if( "offer" === objData.type )
+        let strRemoteSocketID = objData.from;
+        console.log( "- from : ", objData.from );
+
+        if( !g_elementTextUserName.value )
+        {   // 自身がまだ参加していないときは、"signaling"イベントを無視。
+            console.log( "Ignore 'signaling' event because I haven't join yet." );
+            return;
+        }
+
+        if( "join" === objData.type )
+        {
+            if( g_rtcPeerConnection )
+            {
+                alert( "Connection object already exists." );
+                return;
+            }
+
+            // create RTCPeerConnection
+            console.log( "Call : createPeerConnection()" );
+            let rtcPeerConnection = createPeerConnection( g_elementVideoLocal.srcObject, strRemoteSocketID );
+            g_rtcPeerConnection = rtcPeerConnection;    // グローバル変数に設定
+
+            // create DataChannel
+            let datachannel = rtcPeerConnection.createDataChannel( "datachannel" );
+            // add DataChannel to member of RTCPeerConnection
+            rtcPeerConnection.datachannel = datachannel;
+            // setup event hundler of DataChannel
+            console.log( "Call : setupDataChannelEventHandler()" );
+            setupDataChannelEventHandler( rtcPeerConnection );
+
+            console.log( "Call : createOfferSDP()" );
+            createOfferSDP( rtcPeerConnection );
+        }
+        else if( "offer" === objData.type )
         {
             if( g_rtcPeerConnection )
             {
@@ -262,11 +331,13 @@ g_socket.on(
             }
 
             console.log( "Call : createPeerConnection()" );
-            let rtcPeerConnection = createPeerConnection( g_elementVideoLocal.srcObject );
+            let rtcPeerConnection = createPeerConnection( g_elementVideoLocal.srcObject, strRemoteSocketID );
             g_rtcPeerConnection = rtcPeerConnection;
 
             console.log( "Call : setOfferSDP_and_createAnswerSDP()" );
             setOfferSDP_and_createAnswerSDP( rtcPeerConnection, objData.data );
+            g_elementTextRemoteUserName.value = objData.username;
+
         }
         else if( "answer" === objData.type )
         {
@@ -278,6 +349,7 @@ g_socket.on(
 
             console.log( "Call : setAnswerSDP()" );
             setAnswerSDP( g_rtcPeerConnection, objData.data );
+            g_elementTextRemoteUserName.value = objData.username;
         }
         else if( "candidate" === objData.type )
         {
@@ -364,7 +436,7 @@ function isDataChannelOpen( rtcPeerConnection )
 
 // RTCPeerConnection functions
 
-function createPeerConnection( stream )
+function createPeerConnection( stream, strRemoteSocketID )
 {
     let config = { "iceServers": [
             { "urls": "stun:stun.l.google.com:19302" },
@@ -374,6 +446,7 @@ function createPeerConnection( stream )
     };
 
     let rtcPeerConnection = new RTCPeerConnection( config );
+    rtcPeerConnection.strRemoteSocketID = strRemoteSocketID;
 
     setupRTCPeerConnectionEventHandler( rtcPeerConnection );
 
@@ -420,7 +493,7 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
             if( !isDataChannelOpen( rtcPeerConnection ) )
             {  
                 console.log( "- Send ICE candidate to server" );
-                g_socket.emit( "signaling", { type: "candidate", data: event.candidate } );
+                g_socket.emit( "signaling", { to: rtcPeerConnection.strRemoteSocketID, type: "candidate", data: event.candidate } );
             }
             else
             {
@@ -606,7 +679,8 @@ function createOfferSDP( rtcPeerConnection )
             if( !isDataChannelOpen( rtcPeerConnection ) )
             { 
                 console.log( "- Send OfferSDP to server" );
-                g_socket.emit( "signaling", { type: "offer", data: rtcPeerConnection.localDescription } );
+                g_socket.emit( "signaling", { to: rtcPeerConnection.strRemoteSocketID, type: "offer", 
+                    data: rtcPeerConnection.localDescription, username: g_elementTextUserName.value } );
             }
             else
             {
@@ -643,7 +717,8 @@ function setOfferSDP_and_createAnswerSDP( rtcPeerConnection, sessionDescription 
             if( !isDataChannelOpen( rtcPeerConnection ) )
             {  
                 console.log( "- Send AnswerSDP to server" );
-                g_socket.emit( "signaling", { type: "answer", data: rtcPeerConnection.localDescription } );
+                g_socket.emit( "signaling", { to: rtcPeerConnection.strRemoteSocketID, type: "answer", 
+                    data: rtcPeerConnection.localDescription, username: g_elementTextUserName.value } );
             }
             else
             {

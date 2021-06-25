@@ -24,8 +24,6 @@ io.on(
     {
         console.log( "connection : ", socket.id );
 
-        // 切断時の処理
-        // ・クライアントが切断したら、サーバー側では"disconnect"イベントが発生する
         socket.on(
             "disconnect",
             () =>
@@ -33,8 +31,7 @@ io.on(
                 console.log( "disconnect : ", socket.id );
             }
         );
-        // signalingデータ受信時の処理
-        // ・クライアント側のsignalingデータ送信「socket.emit( "signaling", objData );」に対する処理
+
         socket.on(
             "signaling",
             ( objData ) =>
@@ -42,10 +39,27 @@ io.on(
                 console.log( "signaling : ", socket.id );
                 console.log( "- type : ", objData.type );
 
-                // 送信元以外の全員に送信
-                socket.broadcast.emit( "signaling", objData );
+                if( "to" in objData )
+                {
+                    console.log( "- to : ", objData.to );
+                    objData.from = socket.id;
+                    socket.to( objData.to ).emit( "signaling", objData );
+                }
+                else
+                {
+                    console.error( "Unexpected : Unknown destination" );
+                }
             }
         );
+
+        socket.on(
+            "join",
+            ( objData ) =>
+            {
+                console.log( "join : ", socket.id );
+                socket.broadcast.emit( "signaling", { from: socket.id, type: "join" } );
+            } 
+	);
     }
 );
 
