@@ -564,6 +564,8 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
         // setup event handler for DataChannel
         console.log( "Call : setupDataChannelEventHandler()" );
         setupDataChannelEventHandler( rtcPeerConnection );
+        console.log( "Call : createOfferSDP()" );
+        createOfferSDP( rtcPeerConnection );
     };
 }
 
