@@ -8,18 +8,19 @@ const g_elementInputUserName = document.getElementById( "input_username" );
 const g_elementCheckboxCamera = document.getElementById( "checkbox_camera" );
 const g_elementCheckboxMicrophone = document.getElementById( "checkbox_microphone" );
 
+const g_elementDivUserInfo = document.getElementById( "div_userinfo" );
 const g_elementTextUserName = document.getElementById( "text_username" );
-const g_elementTextRemoteUserName = document.getElementById( "text_remote_username" );
+// const g_elementTextRemoteUserName = document.getElementById( "text_remote_username" );
 
 const g_elementVideoLocal = document.getElementById( "video_local" );
-const g_elementVideoRemote = document.getElementById( "video_remote" );
-const g_elementAudioRemote = document.getElementById( "audio_remote" );
+// const g_elementVideoRemote = document.getElementById( "video_remote" );
+// const g_elementAudioRemote = document.getElementById( "audio_remote" );
 const g_elementTextMessageForSend = document.getElementById( "text_message_for_send" );
 const g_elementTextareaMessageReceived = document.getElementById( "textarea_message_received" );
 const g_socket = io.connect();
 
 const g_elementCanvasLocal = document.getElementById( "canvas_local" );
-const g_elementCanvasRemote = document.getElementById( "canvas_remote" );
+// const g_elementCanvasRemote = document.getElementById( "canvas_remote" );
 const g_contextLocal = g_elementCanvasLocal.getContext('2d');
 const g_contextRemote = g_elementCanvasLocal.getContext('2d');
 const g_coverImage = new Image();
@@ -29,7 +30,8 @@ const inputSize = 224;
 const scoreThreshold = 0.5;
 const g_faceApiOptions = new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold });
 
-let g_rtcPeerConnection = null;
+// let g_rtcPeerConnection = null;
+let g_mapRtcPeerConnection = new Map();
 
 // UI functions
 
@@ -77,51 +79,21 @@ function onsubmitButton_Join()
     g_elementDivChatScreen.style.display = "block";
 }
 
-/* -- comment out
-// Send OfferSDP
-function onclickButton_SendOfferSDP()
-{
-    console.log( "UI Event : 'Send OfferSDP.' button clicked." );
-
-    if( g_rtcPeerConnection )
-    {
-        alert( "Connection object already exists." );
-        return;
-    }
-
-    // create RTCPeerConnection
-    console.log( "Call : createPeerConnection()" );
-    let rtcPeerConnection = createPeerConnection( g_elementVideoLocal.srcObject );
-    g_rtcPeerConnection = rtcPeerConnection;
-
-    // create DataChannel
-    let datachannel = rtcPeerConnection.createDataChannel( "my datachannel" );
-    // add DataChannel to member of RTCPeerConnection
-    rtcPeerConnection.datachannel = datachannel;
-    // setup event handler for DataChannel
-    console.log( "Call : setupDataChannelEventHandler()" );
-    setupDataChannelEventHandler( rtcPeerConnection );
-
-    // create OfferSDP
-    createOfferSDP( rtcPeerConnection );
-}
-*/
-
 // Leave Chat
 function onclickButton_LeaveChat()
 {
     console.log( "UI Event : 'Leave Chat.' button clicked." );
 
-    if( g_rtcPeerConnection )
+    g_mapRtcPeerConnection.forEach( ( rtcPeerConnection ) =>
     {
-        if( isDataChannelOpen( g_rtcPeerConnection ) )
+        if( isDataChannelOpen( rtcPeerConnection ) )
         {
             console.log( "- Send 'leave' through DataChannel" );
-            g_rtcPeerConnection.datachannel.send( JSON.stringify( { type: "leave", data: "" } ) );
+            rtcPeerConnection.datachannel.send( JSON.stringify( { type: "leave", data: "" } ) );
         }
         console.log( "Call : endPeerConnection()" );
-        endPeerConnection( g_rtcPeerConnection );
-    }
+        endPeerConnection( rtcPeerConnection );
+    } );
 
     g_elementTextUserName.value = "";
 
@@ -180,9 +152,9 @@ function onclickCheckbox_CameraMicrophone()
         return;
     }
 
-    if( g_rtcPeerConnection )
+    g_mapRtcPeerConnection.forEach( ( rtcPeerConnection ) => 
     {
-        let senders = g_rtcPeerConnection.getSenders();
+        let senders = rtcPeerConnection.getSenders();
         senders.forEach( ( sender ) =>
         {
             if( sender.track )
@@ -190,11 +162,11 @@ function onclickCheckbox_CameraMicrophone()
                 if( idCameraTrack_old === sender.track.id
                     || idMicrophoneTrack_old === sender.track.id)
                 {
-                    g_rtcPeerConnection.removeTrack( sender );
+                    rtcPeerConnection.removeTrack( sender );
                 }
             }
         } );
-    }
+    } );
 
     // stop media stream track (Canceling the media stream of HTML element does not stop the camera)
     if( trackCamera_old )
@@ -221,13 +193,13 @@ function onclickCheckbox_CameraMicrophone()
     navigator.mediaDevices.getUserMedia( { video: bCamera_new, audio: bMicrophone_new } )
         .then( ( stream ) =>
         {
-            if( g_rtcPeerConnection )
+            g_mapRtcPeerConnection.forEach( ( rtcPeerConnection ) =>
             {
                 stream.getTracks().forEach( ( track ) =>
                 {
-                    g_rtcPeerConnection.addTrack( track, stream );
+                    rtcPeerConnection.addTrack( track, stream );
                 } );
-            }
+            } );
             // set the media stream to HTML element
             console.log( "Call : setStreamToElement( Video_Local, stream )" );
             setStreamToElement( g_elementVideoLocal, g_elementCanvasLocal, stream );
@@ -247,16 +219,16 @@ function onsubmitButton_SendMessage()
 {
     console.log( "UI Event : 'Send Message' button clicked." );
 
-    if( !g_rtcPeerConnection )
-    {   // コネクションオブジェクトがない
+    if( !g_mapRtcPeerConnection.size )
+    {
         alert( "Connection object does not exist." );
         return;
     }
-    if( !isDataChannelOpen( g_rtcPeerConnection ) )
-    {   // DataChannelオブジェクトが開いていない
-        alert( "Datachannel is not open." );
-        return;
-    }
+    // if( !isDataChannelOpen( g_rtcPeerConnection ) )
+    // {   // DataChannelオブジェクトが開いていない
+    //     alert( "Datachannel is not open." );
+    //     return;
+    // }
 
     if( !g_elementTextMessageForSend.value )
     {
@@ -264,8 +236,11 @@ function onsubmitButton_SendMessage()
         return;
     }
 
-    console.log( "- Send Message through DataChannel" );
-    g_rtcPeerConnection.datachannel.send( JSON.stringify( { type: "message", data: g_elementTextMessageForSend.value } ) );
+    g_mapRtcPeerConnection.forEach( ( rtcPeerConnection ) =>
+    {
+        console.log( "- Send Message through DataChannel" );
+        rtcPeerConnection.datachannel.send( JSON.stringify( { type: "message", data: g_elementTextMessageForSend.value } ) );
+    });
 
     // add send-message to text-area
     g_elementTextareaMessageReceived.value = g_elementTextMessageForSend.value + "\n" + g_elementTextareaMessageReceived.value; // add to top
@@ -300,7 +275,7 @@ g_socket.on(
 
         if( "join" === objData.type )
         {
-            if( g_rtcPeerConnection )
+            if( g_mapRtcPeerConnection.get( strRemoteSocketID ) )
             {
                 alert( "Connection object already exists." );
                 return;
@@ -309,7 +284,7 @@ g_socket.on(
             // create RTCPeerConnection
             console.log( "Call : createPeerConnection()" );
             let rtcPeerConnection = createPeerConnection( g_elementVideoLocal.srcObject, strRemoteSocketID );
-            g_rtcPeerConnection = rtcPeerConnection;    // グローバル変数に設定
+            g_mapRtcPeerConnection.set( strRemoteSocketID, rtcPeerConnection );
 
             // create DataChannel
             let datachannel = rtcPeerConnection.createDataChannel( "datachannel" );
@@ -324,7 +299,7 @@ g_socket.on(
         }
         else if( "offer" === objData.type )
         {
-            if( g_rtcPeerConnection )
+            if( g_mapRtcPeerConnection.get( strRemoteSocketID ) )
             {
                 alert( "Connection object already exists." );
                 return;
@@ -332,35 +307,40 @@ g_socket.on(
 
             console.log( "Call : createPeerConnection()" );
             let rtcPeerConnection = createPeerConnection( g_elementVideoLocal.srcObject, strRemoteSocketID );
-            g_rtcPeerConnection = rtcPeerConnection;
+            g_mapRtcPeerConnection.set( strRemoteSocketID, rtcPeerConnection );
 
             console.log( "Call : setOfferSDP_and_createAnswerSDP()" );
             setOfferSDP_and_createAnswerSDP( rtcPeerConnection, objData.data );
-            g_elementTextRemoteUserName.value = objData.username;
-
+            // g_elementTextRemoteUserName.value = objData.username;
+            appendRemoteInfoElement( strRemoteSocketID, objData.username );
         }
         else if( "answer" === objData.type )
         {
-            if( !g_rtcPeerConnection )
+            let rtcPeerConnection = g_mapRtcPeerConnection.get( strRemoteSocketID );
+            
+            if( !rtcPeerConnection )
             {
                 alert( "Connection object does not exist." );
                 return;
             }
 
             console.log( "Call : setAnswerSDP()" );
-            setAnswerSDP( g_rtcPeerConnection, objData.data );
-            g_elementTextRemoteUserName.value = objData.username;
+            setAnswerSDP( rtcPeerConnection, objData.data );
+            // g_elementTextRemoteUserName.value = objData.username;
+            appendRemoteInfoElement( strRemoteSocketID, objData.username );
         }
         else if( "candidate" === objData.type )
         {
-            if( !g_rtcPeerConnection )
+           let rtcPeerConnection = g_mapRtcPeerConnection.get( strRemoteSocketID );
+
+            if( !rtcPeerConnection )
             {
                 alert( "Connection object does not exist." );
                 return;
             }
 
             console.log( "Call : addCandidate()" );
-            addCandidate( g_rtcPeerConnection, objData.data );
+            addCandidate( rtcPeerConnection, objData.data );
         }
         else
         {
@@ -588,13 +568,16 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
         let track = event.track;
         if( "video" === track.kind )
         {
+            let elementVideoRemote = getRemoteElement( "video", rtcPeerConnection.strRemoteSocketID );
+            let elementCanvasRemote = getRemoteElement( "canvas", rtcPeerConnection.strRemoteSocketID );
             console.log( "Call : setStreamToElement( Video_Remote, stream )" );
-            setStreamToElement( g_elementVideoRemote, g_elementCanvasRemote, stream );
+            setStreamToElement( elementVideoRemote, elementCanvasRemote, stream );
         }
         else if( "audio" === track.kind )
         {
+            let elementAudioRemote = getRemoteElement( "audio", rtcPeerConnection.strRemoteSocketID );
             console.log( "Call : setStreamToElement( Audio_Remote, stream )" );
-            setStreamToElement( g_elementAudioRemote, null, stream );
+            setStreamToElement( elementAudioRemote, null, stream );
         }
         else
         {
@@ -610,13 +593,15 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
             let trackRemove = evt.track;
             if( "video" === trackRemove.kind )
             {
+                let elementVideoRemote = getRemoteElement( "video",rtcPeerConnection.strRemoteSocketID );
                 console.log( "Call : setStreamToElement( Video_Remote, null )" );
-                setStreamToElement( g_elementVideoRemote, null );
+                setStreamToElement( elementVideoRemote, null, null );
             }
             else if( "audio" === trackRemove.kind )
             {
+                let elementAudioRemote = getRemoteElement( "audio", rtcPeerConnection.strRemoteSocketID );
                 console.log( "Call : setStreamToElement( Audio_Remote, null )" );
-                setStreamToElement( g_elementAudioRemote, null );
+                setStreamToElement( elementAudioRemote, null, null );
             }
             else
             {
@@ -645,11 +630,13 @@ function setupRTCPeerConnectionEventHandler( rtcPeerConnection )
 function endPeerConnection( rtcPeerConnection )
 {
     // Stop remote video
-    console.log( "Call : setStreamToElement( Video_Remote, null )" );
-    setStreamToElement( g_elementVideoRemote, g_elementCanvasLocal, null );
+    // console.log( "Call : setStreamToElement( Video_Remote, null )" );
+    // setStreamToElement( g_elementVideoRemote, g_elementCanvasLocal, null );
     // Stop remote audio
-    console.log( "Call : setStreamToElement( Audio_Remote, null )" );
-    setStreamToElement( g_elementAudioRemote, null, null );
+    // console.log( "Call : setStreamToElement( Audio_Remote, null )" );
+    // setStreamToElement( g_elementAudioRemote, null, null );
+    console.log( "Call : removeRemoteVideoElement()" );
+    removeRemoteInfoElement( rtcPeerConnection.strRemoteSocketID );
 
     // close DataChannel
     if( "datachannel" in rtcPeerConnection )
@@ -658,7 +645,8 @@ function endPeerConnection( rtcPeerConnection )
         rtcPeerConnection.datachannel = null;
     }
 
-    g_rtcPeerConnection = null;
+    // g_rtcPeerConnection = null;
+    g_mapRtcPeerConnection.delete( rtcPeerConnection.strRemoteSocketID );
 
     rtcPeerConnection.close();
 }
@@ -786,6 +774,84 @@ function setStreamToElement( elementMedia, canvas, stream )
     {
         console.error( "Unexpected : Unknown ElementTagName : ", elementMedia.tagName );
     }
+}
+
+function appendRemoteInfoElement( strRemoteSocketID, strUserName )
+{
+    // <div border="1 solid #000000"><input type="text" id="text_remote_username" readonly="readonly"><br /><video id="video_remote" width="320" height="240" ; border: 1px solid black;"></video><audio id="audio_remote"></audio></div>
+
+    let strElementTextID = "text_" + strRemoteSocketID;
+    let strElementVideoID = "video_" + strRemoteSocketID;
+    let strElementCanvasID = "canvas_" + strRemoteSocketID;
+    let strElementAudioID = "audio_" + strRemoteSocketID;
+    let strElementTableID = "table_" + strRemoteSocketID;
+
+    // set text element
+    let elementText = document.createElement( "input" );
+    elementText.id = strElementTextID;
+    elementText.type = "text";
+    elementText.readOnly = "readonly";
+    elementText.value = strUserName;
+
+    // set video element
+    let elementVideo = document.createElement( "video" );
+    elementVideo.id = strElementVideoID;
+    elementVideo.width = "320";
+    elementVideo.height = "240";
+    elementVideo.style.border = "1px solid black";
+    elementVideo.autoplay = true;
+
+    // set canvas element
+    let elementCanvas = document.createElement( "canvas" );
+    elementCanvas.id = strElementCanvasID;
+    elementCanvas.className = "overlay";
+    elementCanvas.style.position = "absolute";
+    elementCanvas.style.top = "0";
+    elementCanvas.style.left = "0";
+    elementCanvas.style.width = "320";
+    elementCanvas.style.height = "240";
+ 
+    // set div for video and canvas
+    let elementDiv4Video = document.createElement( "div" );
+    elementDiv4Video.style.position = "relative";
+
+    // set audio element
+    let elementAudio = document.createElement( "audio" );
+    elementAudio.id = strElementAudioID;
+    elementAudio.autoplay = true;
+
+    // set div element
+    let elementDiv = document.createElement( "div" );
+    elementDiv.id = strElementTableID;
+    elementDiv.border = "1px solid black";
+
+    // add element
+    elementDiv.appendChild( elementText );    // username
+    elementDiv.appendChild( document.createElement( "br" ) ); 
+    elementDiv4Video.appendChild( elementVideo );   // Video
+    elementDiv4Video.appendChild( elementCanvas );   // Canvas
+    elementDiv.appendChild( elementDiv4Video );    // Video and Canvas
+    elementDiv.appendChild( elementAudio );   // Audio
+    g_elementDivUserInfo.appendChild( elementDiv );
+}
+
+function getRemoteElement( type, strRemoteSocketID )
+{
+    return document.getElementById( type + "_" + strRemoteSocketID );
+}
+
+function removeRemoteInfoElement( strRemoteSocketID )
+{
+    let strElementTableID = "table_" + strRemoteSocketID;
+
+    let elementTable = document.getElementById( strElementTableID );
+
+    if( !elementTable )
+    {
+        console.error( "Unexpected : Remote Video Element is not exist. RemoteSocketID = ", strRemoteSocketID );
+    }
+
+    g_elementDivUserInfo.removeChild( elementTable );
 }
 
 function onPlayVideo(video, canvas)
